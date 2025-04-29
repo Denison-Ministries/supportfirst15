@@ -14,9 +14,43 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history for accurate rebase
 
+      - name: Update PR branch (for pull_request events)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Configure Git user identity
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+          # Get the PR number from the GitHub event
+          PR_NUMBER=$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            # Get the PR's branch name
+            PR_BRANCH=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER" | \
+              jq --raw-output .head.ref)
+            if [ -n "$PR_BRANCH" ] && [ "$PR_BRANCH" != "null" ]; then
+              # Update the PR branch with the target branch (assuming 'main')
+              git checkout "$PR_BRANCH"
+              git pull origin main --rebase
+              git push origin "$PR_BRANCH" --force
+            else
+              echo "Error: Could not determine PR branch for PR #$PR_NUMBER"
+              exit 1
+            fi
+          else
+            echo "Error: No valid PR number found"
+            exit 1
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Update PR branches (for schedule events)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
+          # Configure Git user identity
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
           # Get all open PRs with a /schedule comment
           PRS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/pulls?state=open" | \
